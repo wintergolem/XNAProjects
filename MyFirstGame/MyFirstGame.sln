@@ -1,0 +1,24 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual C# Express 2010
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MyFirstGame", "MyFirstGame\MyFirstGame\MyFirstGame.csproj", "{AAE1FE6E-C9F2-4F33-B7B1-A61408A8AAE2}"
+EndProject
+Project("{96E2B04D-8817-42C6-938A-82C39BA4D311}") = "MyFirstGameContent", "MyFirstGame\MyFirstGameContent\MyFirstGameContent.contentproj", "{73762C2E-E47C-4AA8-8CAA-2854084D9EE1}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|x86 = Debug|x86
+		Release|x86 = Release|x86
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AAE1FE6E-C9F2-4F33-B7B1-A61408A8AAE2}.Debug|x86.ActiveCfg = Debug|x86
+		{AAE1FE6E-C9F2-4F33-B7B1-A61408A8AAE2}.Debug|x86.Build.0 = Debug|x86
+		{AAE1FE6E-C9F2-4F33-B7B1-A61408A8AAE2}.Release|x86.ActiveCfg = Release|x86
+		{AAE1FE6E-C9F2-4F33-B7B1-A61408A8AAE2}.Release|x86.Build.0 = Release|x86
+		{73762C2E-E47C-4AA8-8CAA-2854084D9EE1}.Debug|x86.ActiveCfg = Debug|x86
+		{73762C2E-E47C-4AA8-8CAA-2854084D9EE1}.Release|x86.ActiveCfg = Release|x86
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
