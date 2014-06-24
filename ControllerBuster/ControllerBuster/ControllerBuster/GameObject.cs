@@ -27,7 +27,44 @@ namespace ControllerBuster
     public enum Gamestate { MainMenu, CoreGame, Multiplayer, Exit, ScoreScreen };
     public enum MenuState { PressStart, Single, VS };
 
+    //structs
+    public struct PlayerScoreStruct
+    {
+        public int iPointsScored;
+        public int iPointsPossible;
+        public int iNegativePoints;
+    }
+
+    struct TileSet
+    {
+        public float timeInBetweenTilesAdd;
+        public float timeToSubtractFromWait;
+        public float timeSinceLastTile;
+    }
+
     //classes
+    public class InputRecordEntry
+    {
+        //class based around trying to add a buffer around input to prevent unnessarity negative points
+        public InputCat cat;
+        public InputType type;
+        public float fTimeToKill;
+
+        public InputRecordEntry(InputCat a_cat, InputType a_type, float a_fTime)
+        {
+            cat = a_cat;
+            type = a_type;
+            fTimeToKill = a_fTime;
+        }
+
+        public bool Update( float a_fTime)
+        {//returns true if update was successful, if not, then time kill this
+            if (a_fTime >= fTimeToKill)
+                return false;
+            return true;
+        }
+    }
+
     public class TileSpriteManager
     {
 
@@ -93,7 +130,7 @@ namespace ControllerBuster
         public enum TileState { Quarry, Active, Defaulted, Dead };
         public TileState state;
         public InputType inputWanted;
-        InputCat inputCat; //helps narrow down the check for input given
+        public InputCat inputCat; //helps narrow down the check for input given and used for record entry in tilemanager
         public bool bMoving { get; protected set; }
         Vector2 v2EndPosition;
         const float fSpeed = 0.1f;
@@ -343,32 +380,33 @@ namespace ControllerBuster
         }
     }
 
-    struct TileSet
-    {
-        public float timeInBetweenTilesAdd;
-        public float timeToSubtractFromWait;
-        public float timeSinceLastTile;
-    }
-
     class TileManager
     {
+        List<InputRecordEntry> lInputRecord;
+        GamePadState testState;
         GameManager manager;
-        Texture2D vsBackgroundTexture;
-        Texture2D singleBackgroundTexture;
+        GameTime lastGameTime;
+        Queue<Tile> qTilesInWait;
         Rectangle vsSourceRect;
         Rectangle singleSourceRect;
-        Queue<Tile> qTilesInWait;
+        Texture2D vsBackgroundTexture;
+        Texture2D singleBackgroundTexture;
+        TileSet tileSetOne;
         Tile[] aTilesOnField;
+        Tile testTile;
         Vector4[] av4TileLocationsAndSize; //x an y position , z and w? for size
         Vector2 v2TileStartingPoint;
-        int iMaxActiveTiles;
-        public bool bMulitplayer = false;
-        public bool bIsMultiManager;
-        TileSet tileSetOne;
-        //TileSet tileSetTwo;
-        GameTime lastGameTime;
+
+        bool bInputSuccess = false;
         float fTimeBetweenSubtract = 1500; //milliseconds
         float fTimeSinceSubtract = 0;   //seconds
+        float fInputRecordTime = 1500; //milliseconds
+        int iMaxActiveTiles;
+        int i; // used for looping
+
+        public bool bMulitplayer = false;
+        public bool bIsMultiManager;
+       
 
         Random rand;
 
@@ -387,81 +425,34 @@ namespace ControllerBuster
             tileSetOne.timeToSubtractFromWait = a_subtract;
             v2TileStartingPoint = a_TileStart;
             bIsMultiManager = a_bIsSecondManager;
-            //tileSetTwo.timeInBetweenTilesAdd = a_between;
-            //tileSetTwo.timeSinceLastTile = 0;
-            //tileSetTwo.timeToSubtractFromWait = a_subtract;
-            ////timeInBetweenTilesAdd = a_between;
-            //timeToSubtractFromWait = a_subtract;
-        }
-
-        void AddToQueue(int iAmountToAdd)
-        {
-            if (av4TileLocationsAndSize == null) return; //array still needs to be filled
-            for (int i = 0; i < iAmountToAdd; i++)
-            {
-                //TODO change Vector.zero to actual spot on screen
-                Tile t = new Tile((InputType)rand.Next(22), Vector4.Zero, Tile.TileState.Quarry);
-                qTilesInWait.Enqueue(t);
-            }
-        }
-
-        void FromQueueToArray(int aiIndex)
-        {
-            //take oldest tile from queue and add it to the array
-            if (qTilesInWait.Count < 1) return; //nothing in queue, then we're done here
-
-            while (aiIndex > (bMulitplayer ? manager.iMaxTilesMulti : manager.iMaxTilesPerRow-1) )
-            {
-                //tell index below to move down
-                aTilesOnField[aiIndex] = aTilesOnField[aiIndex - manager.iMaxTilesPerRow];
-                aTilesOnField[aiIndex - manager.iMaxTilesPerRow] = null;
-                aTilesOnField[aiIndex].MoveTo(new Vector2(av4TileLocationsAndSize[aiIndex].X, av4TileLocationsAndSize[aiIndex].Y));
-                    //adjust array accordingly
-                //decrease index
-                aiIndex -= manager.iMaxTilesPerRow;
-            }
-           
-            Tile temp = qTilesInWait.Dequeue();
-            //add position
-            temp.v4Position = new Vector4( v2TileStartingPoint, av4TileLocationsAndSize[aiIndex].Z, av4TileLocationsAndSize[aiIndex].W);
-            //temp.texture = CalculateTexture(temp.inputWanted);
-            aTilesOnField[aiIndex] = temp;
-            aTilesOnField[aiIndex].state = Tile.TileState.Active;
-            aTilesOnField[aiIndex].MoveTo(new Vector2(av4TileLocationsAndSize[aiIndex].X, av4TileLocationsAndSize[aiIndex].Y));
-            
-        }
-
-        void CheckForInput(GamePadState a_stateOne)
-        {
-            //TODO: learn to use threading
-            //if (!bMulitplayer)
-            //{
-            for (int i = 0; i < aTilesOnField.Length; i++)
-            {
-                Tile t = aTilesOnField[i];
-                //checks through state to check input pressed
-                if (t == null) continue; //if blank, then it doesn't care about input
-                if (t.CheckInput(a_stateOne) )
-                {//inputwanted was given, remove from list of active tiles
-                    //think this can be handled better
-                    aTilesOnField[i] = null;
-                    manager.Scored(bIsMultiManager);
-                    //tileSetOne.timeInBetweenTilesAdd -= tileSetOne.timeToSubtractFromWait;//speed up the tiles
-                    //TODO: add min time between
-                }
-            }
-            //}
+            testState = new GamePadState();
+            testTile = new Tile(InputType.A, Vector4.Zero, Tile.TileState.Defaulted);
+            lInputRecord = new List<InputRecordEntry>();
         }
 
         public void Update(GamePadState a_currentStateOne, GameTime a_gameTime)
         {
+            //update tile entries
+            do
+            {
+                bInputSuccess = false; //not its orignal purpose, but there is no harm in using it here
+                for (i = 0; i < lInputRecord.Count; i++)
+                {
+                    if (!lInputRecord[i].Update( (float)a_gameTime.TotalGameTime.TotalMilliseconds) )
+                    {
+                        lInputRecord.RemoveAt(i);
+                        bInputSuccess = true;
+                    }
+                }
+            } while (bInputSuccess);
+
             //update tiles position
             foreach (Tile t in aTilesOnField)
                 if( t != null)
                     t.Update((float)(a_gameTime.ElapsedGameTime.Milliseconds)/100);
 
             //check for input
-            CheckForInput(a_currentStateOne);
+            CheckForInput(a_currentStateOne , a_gameTime);
 
             fTimeSinceSubtract += a_gameTime.ElapsedGameTime.Milliseconds;
             if (fTimeSinceSubtract > fTimeBetweenSubtract)
@@ -559,6 +550,88 @@ namespace ControllerBuster
 
         }
 
+        void AddToQueue(int iAmountToAdd)
+        {
+            if (av4TileLocationsAndSize == null) return; //array still needs to be filled
+            for (int i = 0; i < iAmountToAdd; i++)
+            {
+                //TODO change Vector.zero to actual spot on screen
+                Tile t = new Tile((InputType)rand.Next(22), Vector4.Zero, Tile.TileState.Quarry);
+                qTilesInWait.Enqueue(t);
+            }
+        }
+
+        void FromQueueToArray(int aiIndex)
+        {
+            //take oldest tile from queue and add it to the array
+            if (qTilesInWait.Count < 1) return; //nothing in queue, then we're done here
+
+            while (aiIndex > (bMulitplayer ? manager.iMaxTilesMulti : manager.iMaxTilesPerRow - 1))
+            {
+                //tell index below to move down
+                aTilesOnField[aiIndex] = aTilesOnField[aiIndex - manager.iMaxTilesPerRow];
+                aTilesOnField[aiIndex - manager.iMaxTilesPerRow] = null;
+                aTilesOnField[aiIndex].MoveTo(new Vector2(av4TileLocationsAndSize[aiIndex].X, av4TileLocationsAndSize[aiIndex].Y));
+                //adjust array accordingly
+                //decrease index
+                aiIndex -= manager.iMaxTilesPerRow;
+            }
+
+            Tile temp = qTilesInWait.Dequeue();
+            //add position
+            temp.v4Position = new Vector4(v2TileStartingPoint, av4TileLocationsAndSize[aiIndex].Z, av4TileLocationsAndSize[aiIndex].W);
+            //temp.texture = CalculateTexture(temp.inputWanted);
+            aTilesOnField[aiIndex] = temp;
+            aTilesOnField[aiIndex].state = Tile.TileState.Active;
+            aTilesOnField[aiIndex].MoveTo(new Vector2(av4TileLocationsAndSize[aiIndex].X, av4TileLocationsAndSize[aiIndex].Y));
+
+        }
+
+        void CheckForInput(GamePadState a_stateOne , GameTime a_time)
+        {
+            //check to see if there is input
+            if (manager.ComparePadState(a_stateOne, testState))
+            {
+                bInputSuccess = false;
+                for (int i = 0; i < aTilesOnField.Length; i++)
+                {
+                    Tile t = aTilesOnField[i];
+                    //checks through state to check input pressed
+                    if (t == null) continue; //if blank, then it doesn't care about input
+                    if (t.CheckInput(a_stateOne))
+                    {//inputwanted was given, remove from list of active tiles
+                        //think this can be handled better
+                        AddRecordEntry(aTilesOnField[i].inputCat, aTilesOnField[i].inputWanted, a_time);
+                        aTilesOnField[i] = null;
+                        manager.UpdateScores(bIsMultiManager ? 2 : 1, 1, 0);
+                        bInputSuccess = true;
+                    }
+                }
+                if (!bInputSuccess)
+                {
+                    //compare input to InputRecord
+                    if (CheckAgainstRecord(a_stateOne)) return;
+                    //gave input, but it was invalid/incorrect
+                    manager.UpdateScores(bInputSuccess ? 2 : 1, 0, 1);
+
+                }
+            }
+        }
+
+        bool CheckAgainstRecord(GamePadState state)
+        {//input given is in the record
+            for (i = 0; i < lInputRecord.Count; i++)
+            {
+                testTile.inputCat = lInputRecord[i].cat;
+                testTile.inputWanted = lInputRecord[i].type;
+                if (testTile.CheckInput(state))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         void CalculateTexture(InputType a_input)
         {
             //switch (a_input)
@@ -574,6 +647,18 @@ namespace ControllerBuster
             //    default:
             //        return lTilesTextures[4];
             //}
+        }
+
+        void AddRecordEntry(InputCat a_cat, InputType a_type, GameTime a_time)
+        {
+            InputRecordEntry entry = new InputRecordEntry(a_cat, a_type, (float)(a_time.TotalGameTime.TotalMilliseconds) + fInputRecordTime);
+            lInputRecord.Add(entry);
+        }
+
+        void AddFailedInputToRecord(GamePadState state)
+        {
+            //InputRecordEntry r = new InputRecordEntry(InputCat.Button, InputType.A, 0); // making default entry
+            
         }
     }
 
@@ -739,30 +824,36 @@ namespace ControllerBuster
 
     class GameManager
     {
-
-        public MainMenu mainMenu;
-        public GraphicsDeviceManager graphics;
-        public PlayerIndex playerOneIndex;
-        public PlayerIndex playerTwoIndex;
-
-        public TileSpriteManager tileSprites;
-        public bool bTrialVersion = false;
-
         TileManager tileManager;
         TileManager tileManagerMult;
         Gamestate state;
         Texture2D scoreScreenTexture;
-        public int iMaxTiles;
-        public int iMaxTilesPerRow;
-        public int iMaxTilesMulti = 6;
-        int iPlayerOneScore;
-        int iPlayerTwoScore;
+        PlayerScoreStruct player1Score;
+        PlayerScoreStruct player2Score;
+
         bool bViewPortCalculated = false;
         bool bPlayerOneFound = false;
         bool bPlayerTwoFound = false;
+
         float timeInBetweenTilesAdd;
         float timeToSubtractFromWait;
 
+        //int iPlayerOneScore;
+        //int iPlayerTwoScore;
+       
+        public MainMenu mainMenu;
+        public GraphicsDeviceManager graphics;
+        public PlayerIndex playerOneIndex;
+        public PlayerIndex playerTwoIndex;
+        public TileSpriteManager tileSprites;
+
+        public bool bTrialVersion = false;
+
+        public int iMaxTiles;
+        public int iMaxTilesPerRow;
+        public int iMaxTilesMulti = 6;
+
+        //functions
         public GameManager(float a_TimeInBetween, float a_TimeToSubtract, int a_MaxTiles, int a_MaxTilesPerRow,
                             ref GraphicsDeviceManager a_Graphics, bool a_bTrialVersion
             /*, PlayerIndex a_playerOneIndex, PlayerIndex a_playerTwoIndex*/)
@@ -917,7 +1008,7 @@ namespace ControllerBuster
                     tileManager.DrawTiles(a_spriteBatch);
                     //in coregame  draw score
                     a_spriteBatch.Begin();
-                    a_spriteBatch.DrawString(mainMenu.spriteFont, "Score: " + iPlayerOneScore.ToString(), new Vector2(graphics.GraphicsDevice.Viewport.TitleSafeArea.Center.X - mainMenu.spriteFont.MeasureString("Score:   ").X, graphics.GraphicsDevice.Viewport.TitleSafeArea.Top), Color.White);
+                    a_spriteBatch.DrawString(mainMenu.spriteFont, "Score: " + (player1Score.iPointsScored - player1Score.iNegativePoints).ToString(), new Vector2(graphics.GraphicsDevice.Viewport.TitleSafeArea.Center.X - mainMenu.spriteFont.MeasureString("Score:   ").X, graphics.GraphicsDevice.Viewport.TitleSafeArea.Top), Color.White);
                     a_spriteBatch.End();
                     break;
                 case Gamestate.Multiplayer:
@@ -925,8 +1016,8 @@ namespace ControllerBuster
                     tileManagerMult.DrawTiles(a_spriteBatch);
                     //in coregame  draw score
                     a_spriteBatch.Begin();
-                    a_spriteBatch.DrawString(mainMenu.spriteFont, "Player 1 Score: " + iPlayerOneScore.ToString(), new Vector2(graphics.GraphicsDevice.Viewport.TitleSafeArea.Width * 0.0f, graphics.GraphicsDevice.Viewport.TitleSafeArea.Height * 0.4f), Color.White);
-                    a_spriteBatch.DrawString(mainMenu.spriteFont, "Player 2 Score: " + iPlayerTwoScore.ToString(), new Vector2(graphics.GraphicsDevice.Viewport.TitleSafeArea.Right - mainMenu.spriteFont.MeasureString("Player 2 Score:   ").X, graphics.GraphicsDevice.Viewport.TitleSafeArea.Height * 0.4f), Color.White);
+                    a_spriteBatch.DrawString(mainMenu.spriteFont, "Player 1 Score: " + player1Score.iPointsScored.ToString(), new Vector2(graphics.GraphicsDevice.Viewport.TitleSafeArea.Width * 0.0f, graphics.GraphicsDevice.Viewport.TitleSafeArea.Height * 0.4f), Color.White);
+                    a_spriteBatch.DrawString(mainMenu.spriteFont, "Player 2 Score: " + player2Score.iPointsScored.ToString(), new Vector2(graphics.GraphicsDevice.Viewport.TitleSafeArea.Right - mainMenu.spriteFont.MeasureString("Player 2 Score:   ").X, graphics.GraphicsDevice.Viewport.TitleSafeArea.Height * 0.4f), Color.White);
                     a_spriteBatch.End();
                     break;
                 case Gamestate.MainMenu:
@@ -936,9 +1027,9 @@ namespace ControllerBuster
                     a_spriteBatch.Begin();
                     a_spriteBatch.Draw(scoreScreenTexture, new Rectangle(0, 0, graphics.GraphicsDevice.Viewport.Width, graphics.GraphicsDevice.Viewport.Height), new Rectangle(0, 0, scoreScreenTexture.Width, scoreScreenTexture.Height / 2), Color.White);
                     a_spriteBatch.DrawString(mainMenu.spriteFont, "Game Over", new Vector2(graphics.GraphicsDevice.Viewport.TitleSafeArea.Width * 0.425f, graphics.GraphicsDevice.Viewport.TitleSafeArea.Height * 0.3f), Color.White);
-                    a_spriteBatch.DrawString(mainMenu.spriteFont, "Player 1 : " + iPlayerOneScore.ToString() + " ", new Vector2(graphics.GraphicsDevice.Viewport.TitleSafeArea.Width * 0.4f, graphics.GraphicsDevice.Viewport.TitleSafeArea.Height * 0.5f), Color.White);
+                    a_spriteBatch.DrawString(mainMenu.spriteFont, "Player 1 : " + player1Score.iPointsScored.ToString() + " ", new Vector2(graphics.GraphicsDevice.Viewport.TitleSafeArea.Width * 0.4f, graphics.GraphicsDevice.Viewport.TitleSafeArea.Height * 0.5f), Color.White);
                     if (tileManager.bMulitplayer)
-                        a_spriteBatch.DrawString(mainMenu.spriteFont, "Player 2 : " + iPlayerTwoScore.ToString(), new Vector2(graphics.GraphicsDevice.Viewport.TitleSafeArea.Width * 0.4f, graphics.GraphicsDevice.Viewport.TitleSafeArea.Height * 0.6f), Color.White);
+                        a_spriteBatch.DrawString(mainMenu.spriteFont, "Player 2 : " + player2Score.iPointsScored.ToString(), new Vector2(graphics.GraphicsDevice.Viewport.TitleSafeArea.Width * 0.4f, graphics.GraphicsDevice.Viewport.TitleSafeArea.Height * 0.6f), Color.White);
                     a_spriteBatch.End();
                     break;
                 default:
@@ -946,23 +1037,33 @@ namespace ControllerBuster
             }
         }
 
-        public void Scored(int iPlayerScored)
+        public void UpdateScores(int iPlayerScored , int a_iPoints , int a_iNegative)
         {
             //add to score
             if (iPlayerScored == 1)
-                iPlayerOneScore += 1;
+            {
+                player1Score.iPointsScored += a_iPoints;
+                player1Score.iPointsPossible += 1;
+                player1Score.iNegativePoints += a_iNegative;
+                //iPlayerOneScore += 1;
+            }
             else if (iPlayerScored == 2)
-                iPlayerTwoScore += 1;
+            {
+                player2Score.iPointsScored += a_iPoints;
+                player2Score.iPointsPossible += 1;
+                player2Score.iNegativePoints += a_iNegative;
+                //iPlayerOneScore += 1;
+            }
 
         }
 
-        public void Scored(bool bSecondScored)
+        /*public void Scored(bool bSecondScored)
         {
             if (bSecondScored)
                 iPlayerTwoScore += 1;
             else if (!bSecondScored)
                 iPlayerOneScore += 1;
-        }
+        }*/
 
         public void LoadContent(ContentManager a_content)
         {
@@ -982,8 +1083,9 @@ namespace ControllerBuster
                     Guide.ShowSignIn(2, false);
                 bPlayerTwoFound = false;
                 bViewPortCalculated = false;
-                iPlayerOneScore = 0;
-                iPlayerTwoScore = 0;
+                ZeroOutScores();
+                //iPlayerOneScore = 0;
+                //iPlayerTwoScore = 0;
                 if (bTrialVersion)
                 {
                     //if (!Guide.IsVisible)
@@ -1024,9 +1126,9 @@ namespace ControllerBuster
                 tileManager.bMulitplayer = false;
                 tileManagerMult.bMulitplayer = false;
                 state = Gamestate.CoreGame;
-
-                iPlayerOneScore = 0;
-                iPlayerTwoScore = 0;
+                ZeroOutScores();
+                //iPlayerOneScore = 0;
+                //iPlayerTwoScore = 0;
             }
             else if (a_state == Gamestate.MainMenu)
             {
@@ -1084,8 +1186,8 @@ namespace ControllerBuster
 
         }
 
-        bool ComparePadState(GamePadState checkState, GamePadState state)
-        {
+        public bool ComparePadState(GamePadState checkState, GamePadState state)
+        {//returns true is they are not the same, meant to compare against an empty state to check for any input given
             if (!state.Buttons.Equals(checkState.Buttons) || !state.DPad.Equals(checkState.DPad) || !state.ThumbSticks.Equals(checkState.ThumbSticks) || !state.Triggers.Equals(checkState.Triggers) )
                 return true;
             return false;
@@ -1112,6 +1214,16 @@ namespace ControllerBuster
                     break;
                 }
             }
+        }
+
+        void ZeroOutScores()
+        {
+            player1Score.iPointsScored = 0;
+            player1Score.iPointsPossible = 0;
+            player1Score.iNegativePoints = 0;
+            player2Score.iPointsScored = 0;
+            player2Score.iPointsPossible = 0;
+            player2Score.iNegativePoints = 0;
         }
     }//end of GameManager class
 }//end of WindowsVersion namespace
